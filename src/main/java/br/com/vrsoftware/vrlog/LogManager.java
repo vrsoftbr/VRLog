@@ -11,7 +11,10 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.temporal.ChronoField;
+import java.util.Calendar;
 import java.util.Properties;
+import java.util.TimeZone;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -130,14 +133,26 @@ public class LogManager {
      */
     private void startDailyMaintenanceTask() {
         //Executar à meia-noite todos os dias
-        this.scheduler.scheduleAtFixedRate(this::performMaintenance, calculateInitiDelay(), 24, TimeUnit.HOURS);
+        long initialDelay = calculateInitiDelay();
+        this.scheduler.scheduleAtFixedRate(this::performMaintenance, initialDelay, 24 * 60 * 60, TimeUnit.SECONDS);
     }
 
     /**
      * Calcula o delay inicial para a primeira execução à meia-noite
      */
     private long calculateInitiDelay() {
-        return 0;
+        Calendar calendar = Calendar.getInstance(TimeZone.getDefault());
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+
+        long nextExecutionTime = calendar.getTimeInMillis();
+        long currentTime = System.currentTimeMillis();
+
+        if (currentTime >= nextExecutionTime) nextExecutionTime += TimeUnit.DAYS.toMillis(1);
+
+        return (nextExecutionTime - currentTime) / 1000;
     }
 
     /**
