@@ -7,7 +7,8 @@ plugins {
 }
 
 group = "br.com.vrsoftware"
-version = getVersao()
+val projectName = "VRLog"
+val projectVersion = getVersao()
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
@@ -21,13 +22,21 @@ repositories {
     mavenCentral()
 }
 
-fun getVersao(): String {
+fun getProperties(): Properties {
+
     val arquivo = File("${projectDir}/src/main/resources/vrlog.properties")
     if (!arquivo.exists()) throw GradleException("Arquivo de versão não encontrado")
 
     val props = Properties().apply {
         FileInputStream(arquivo).use { load(it) }
     }
+
+    return props
+}
+
+fun getVersao(): String {
+
+    val props = getProperties()
 
     val major = props.getProperty("version.major")?.toIntOrNull() ?: 0
     val minor = props.getProperty("version.minor")?.toIntOrNull() ?: 0
@@ -50,19 +59,42 @@ fun getVersao(): String {
 tasks.register("versao") {
     description = "Exibe a versão do projeto"
     group = JavaBasePlugin.BUILD_TASK_NAME
-    println(getVersao())
+    println("$projectName v${projectVersion}")
 }
 
 tasks.jar {
+
+    val props = getProperties()
+
+    archiveBaseName.set(projectName)
+    archiveVersion.set(projectVersion)
+
     manifest {
-        attributes["Implementation-Version"] = getVersao()
-        attributes["Implementation-Title"] = "VRLog"
+        attributes["App-Date"] = props.getProperty("app.data") ?: ""
+        attributes["Version-Major"] = props.getProperty("version.major")?.toIntOrNull() ?: 0
+        attributes["Version-Minor"] = props.getProperty("version.minor")?.toIntOrNull() ?: 0
+        attributes["Version-Release"] = props.getProperty("version.release")?.toIntOrNull() ?: 0
+        attributes["Version-Build"] = props.getProperty("version.build")?.toIntOrNull() ?: 0
+        attributes["Version-Beta"] = props.getProperty("version.beta")?.toIntOrNull() ?: 0
+        attributes["Version-Alpha"] = props.getProperty("version.alpha")?.toIntOrNull() ?: 0
+        attributes["Implementation-Title"] = archiveBaseName
     }
 
-    archiveBaseName.set("vrlog")
-    archiveVersion.set(getVersao())
-    archiveClassifier.set("jar-with-dependencies")
-    archiveFileName.set("vrlog-${archiveVersion.get()}.jar")
+    archiveFileName.set("${projectName}_v${archiveVersion.get()}.jar")
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }) {
+        exclude("META-INF/*.RSA", "META-INF/*.SF", "META-INF/*.DSA")
+        exclude("META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/NOTICE.txt")
+    }
+
+    doLast {
+        copy {
+            from("build/libs")
+            into("dist")
+            rename("($projectName).*(.jar)", "$1$2")
+        }
+    }
 }
 
 dependencies {
