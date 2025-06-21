@@ -1,5 +1,7 @@
 import java.io.FileInputStream
 import java.util.Properties
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 plugins {
     id("java-library")
@@ -8,12 +10,13 @@ plugins {
 
 group = "br.com.vrsoftware"
 val projectName = "VRLog"
-val projectVersion = getVersao()
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
-
+//    toolchain {
+//        languageVersion.set(JavaLanguageVersion.of(8))
+//    }
     withJavadocJar()
     withSourcesJar()
 }
@@ -22,20 +25,19 @@ repositories {
     mavenCentral()
 }
 
-fun getProperties(): Properties {
+val PROPERTY_FILE = "${projectDir}/src/main/resources/vrlog.properties"
 
-    val arquivo = File("${projectDir}/src/main/resources/vrlog.properties")
+fun getProperties(): Properties {
+    val arquivo = File(PROPERTY_FILE)
     if (!arquivo.exists()) throw GradleException("Arquivo de versão não encontrado")
 
     val props = Properties().apply {
         FileInputStream(arquivo).use { load(it) }
     }
-
     return props
 }
 
 fun getVersao(): String {
-
     val props = getProperties()
 
     val major = props.getProperty("version.major")?.toIntOrNull() ?: 0
@@ -46,61 +48,89 @@ fun getVersao(): String {
     val alpha = props.getProperty("version.alpha")?.toIntOrNull() ?: 0
 
     val version = "$major.$minor.$release-$build"
-    val alphaVersion = "$version-alpha$alpha"
-    val betaVersion = "$version-beta$beta"
 
     return when {
-        alpha > 0 -> alphaVersion
-        beta > 0 -> betaVersion
+        alpha > 0 -> "$version-alpha$alpha"
+        beta > 0 -> "$version-beta$beta"
         else -> version
     }
 }
 
+version = getVersao()
+
 tasks.register("versao") {
     description = "Exibe a versão do projeto"
     group = JavaBasePlugin.BUILD_TASK_NAME
-    println("$projectName v${projectVersion}")
+    doFirst {
+        println("$projectName v$version")
+    }
+}
+
+tasks.register("release") {
+    description = "Incrementa o build e atualiza a data"
+    group = JavaBasePlugin.BUILD_TASK_NAME
+
+    doLast {
+        val props = getProperties()
+        val currentBuild = props.getProperty("version.build")?.toIntOrNull() ?: 0
+        val newBuild = currentBuild + 1
+        val data = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+
+        val arquivo = File(PROPERTY_FILE)
+        val updatedProps = Properties().apply {
+            FileInputStream(arquivo).use { load(it) }
+            setProperty("version.build", newBuild.toString())
+            setProperty("app.data", data)
+        }
+
+        arquivo.outputStream().use {
+            updatedProps.store(it, "Updated by release task")
+        }
+
+        version = getVersao()
+        println("$projectName v$version")
+    }
 }
 
 tasks.jar {
-
     val props = getProperties()
 
     archiveBaseName.set(projectName)
-    archiveVersion.set(projectVersion)
+    archiveVersion.set(version.toString())
 
     manifest {
-        attributes["App-Date"] = props.getProperty("app.data") ?: ""
-        attributes["Version-Major"] = props.getProperty("version.major")?.toIntOrNull() ?: 0
-        attributes["Version-Minor"] = props.getProperty("version.minor")?.toIntOrNull() ?: 0
-        attributes["Version-Release"] = props.getProperty("version.release")?.toIntOrNull() ?: 0
-        attributes["Version-Build"] = props.getProperty("version.build")?.toIntOrNull() ?: 0
-        attributes["Version-Beta"] = props.getProperty("version.beta")?.toIntOrNull() ?: 0
-        attributes["Version-Alpha"] = props.getProperty("version.alpha")?.toIntOrNull() ?: 0
-        attributes["Implementation-Title"] = archiveBaseName
+        attributes(mapOf(
+            "App-Date" to (props.getProperty("app.data") ?: ""),
+            "Version-Major" to (props.getProperty("version.major")?.toIntOrNull() ?: 0),
+            "Version-Minor" to (props.getProperty("version.minor")?.toIntOrNull() ?: 0),
+            "Version-Release" to (props.getProperty("version.release")?.toIntOrNull() ?: 0),
+            "Version-Build" to (props.getProperty("version.build")?.toIntOrNull() ?: 0),
+            "Version-Beta" to (props.getProperty("version.beta")?.toIntOrNull() ?: 0),
+            "Version-Alpha" to (props.getProperty("version.alpha")?.toIntOrNull() ?: 0),
+            "Implementation-Title" to projectName,
+            "Implementation-Version" to version
+        ))
     }
-
-    archiveFileName.set("${projectName}_v${archiveVersion.get()}.jar")
 
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }) {
-        exclude("META-INF/*.RSA", "META-INF/*.SF", "META-INF/*.DSA")
-        exclude("META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/NOTICE.txt")
-    }
 
     doLast {
         copy {
             from("build/libs")
             into("dist")
-            rename("($projectName).*(.jar)", "$1$2")
         }
     }
 }
 
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(listOf("-Xlint:unchecked", "-Xlint:deprecation"))
+}
+
 dependencies {
 
-    api("ch.qos.logback:logback-classic:1.2.3")
-    api("org.slf4j:slf4j-api:1.7.30")
+    api("ch.qos.logback:logback-classic:1.2.12")
+    api("org.slf4j:slf4j-api:1.7.36")
 
     implementation("commons-configuration:commons-configuration:1.10")
     implementation("org.apache.commons:commons-compress:1.26.0")
@@ -111,4 +141,16 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+        }
+    }
 }
